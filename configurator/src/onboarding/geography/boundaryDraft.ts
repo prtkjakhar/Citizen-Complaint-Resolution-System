@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { apiClient, boundaryService, localizationService, mdmsService, ApiClientError } from '@/api';
 import { reportStepError, trackStepAction } from '../telemetry';
 import { labelLocales } from '../labelLocales';
+import { englishT, MessageError, type OnboardingT } from '../i18n';
 import { deriveMapPosition } from '@/utils/mapConfigFromBoundaries';
 import type { OsmAdminLevel } from '@/utils/osmBoundaries';
 import type { ParsedGeoJsonSidecar } from '@/utils/boundaryGeoJson';
@@ -101,9 +102,10 @@ async function ensureHierarchy(tenantId: string, hierarchyType: string, levels: 
     const existingLevels = (existing?.boundaryHierarchy ?? []).map((l) => l.boundaryType);
     const sameLevels = existingLevels.length === levels.length && existingLevels.every((name, i) => name === levels[i]);
     if (!sameLevels) {
-      throw new Error(
-        `A "${hierarchyType}" hierarchy already exists on ${tenantId} with levels [${existingLevels.join(' → ')}], ` +
-          `which do not match yours [${levels.join(' → ')}]. Edit your boundaries and name the levels to match.`,
+      throw new MessageError(
+        'geography.levels_mismatch_edit',
+        'A "%{type}" hierarchy already exists on %{tenant} with levels [%{existing}], which do not match yours [%{mapped}]. Edit your boundaries and name the levels to match.',
+        { type: hierarchyType, tenant: tenantId, existing: existingLevels.join(' → '), mapped: levels.join(' → ') },
       );
     }
   }
@@ -118,6 +120,7 @@ async function runPostCreatePipeline(
   created: Boundary[],
   hierarchyType: string,
   levels: { boundaryType: string }[],
+  t: OnboardingT = englishT,
 ): Promise<string | null> {
   // Make this the tenant's PGR hierarchy (CMS-BOUNDARY.HierarchySchema) when it
   // has none yet: digit-ui, the dashboard and PGR read it in place of the
@@ -136,7 +139,7 @@ async function runPostCreatePipeline(
       console.warn('[geography] CMS-BOUNDARY.HierarchySchema not written', e);
       reportStepError('geography', 'hierarchy_schema', e, tenantId);
       const reason = e instanceof ApiClientError ? e.firstError : e instanceof Error ? e.message : String(e);
-      schemaError = `Boundaries were saved, but the hierarchy record didn't save: ${reason}`;
+      schemaError = t('geography.schema_not_saved_draft', 'Boundaries were saved, but the hierarchy record didn\'t save: %{reason}', { reason });
     }
   }
 
@@ -220,7 +223,11 @@ export interface DraftSaveResult {
  * reads alongside them. Throws when nothing could be written (the draft is still
  * good to edit and retry); a partial save comes back with its failures.
  */
-export async function saveBoundaryDraft(tenantId: string, draft: BoundaryDraft): Promise<DraftSaveResult> {
+export async function saveBoundaryDraft(
+  tenantId: string,
+  draft: BoundaryDraft,
+  t: OnboardingT = englishT,
+): Promise<DraftSaveResult> {
   if (!draft.hierarchyExists) await ensureHierarchy(tenantId, draft.hierarchyType, draft.levels);
   const result = await boundaryService.createBoundaries(draft.boundaries);
   const schemaError = result.success.length
@@ -229,6 +236,7 @@ export async function saveBoundaryDraft(tenantId: string, draft: BoundaryDraft):
         result.success,
         draft.hierarchyType,
         draft.levels.map((boundaryType) => ({ boundaryType })),
+        t,
       )
     : null;
   trackStepAction('geography', 'entity_import', 'boundary', {

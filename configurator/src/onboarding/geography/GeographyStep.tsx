@@ -27,6 +27,7 @@ import {
 } from './boundaryDraft';
 import { plural } from '@/utils/plural';
 import { PreconfiguredCard } from './PreconfiguredCard';
+import { MessageError, useOnboardingT, type OnboardingT } from '../i18n';
 
 const STEP = stepById('geography');
 const { previous, next } = adjacentSteps('geography');
@@ -57,8 +58,8 @@ async function loadHierarchies(tenant: string): Promise<HierarchySummary[]> {
   );
 }
 
-/** "3 districts · 12 wards", in level order. */
-function summaryLine(hierarchy: HierarchySummary): string {
+/** "3 districts · 12 wards", in level order. Level names are the workspace's own, so they stay as named. */
+function summaryLine(hierarchy: HierarchySummary, t: OnboardingT): string {
   const parts = hierarchy.levels
     .filter((level) => hierarchy.counts[level])
     .map((level) => {
@@ -66,10 +67,13 @@ function summaryLine(hierarchy: HierarchySummary): string {
       const word = level.toLowerCase();
       return `${count} ${count === 1 ? word : plural(word)}`;
     });
-  return parts.length ? parts.join(' · ') : 'Nothing in it yet';
+  return parts.length ? parts.join(' · ') : t('geography.nothing_in_it_yet', 'Nothing in it yet');
 }
 
-const areas = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'area' : 'areas'}`;
+const areas = (count: number, t: OnboardingT) =>
+  count === 1
+    ? t('geography.created.area_one', '%{count} area', { count: count.toLocaleString('en-US') })
+    : t('geography.created.area_other', '%{count} areas', { count: count.toLocaleString('en-US') });
 
 function reasonOf(err: unknown): string {
   return err instanceof ApiClientError ? err.firstError : err instanceof Error ? err.message : String(err);
@@ -78,6 +82,7 @@ function reasonOf(err: unknown): string {
 export default function GeographyStep() {
   const { state, completePhase } = useApp();
   const navigate = useNavigate();
+  const t = useOnboardingT();
   // Boundaries live at the workspace tenant, which every later step reads them from.
   const tenant = state.targetTenant || state.tenant;
   const done = state.completedPhases.includes(STEP.number);
@@ -150,7 +155,10 @@ export default function GeographyStep() {
     ? { disabled: saving, hint: undefined, canRecheck: false }
     : probeGate(
         'GEOGRAPHY',
-        { ready: hasBoundaries, hint: hierarchies && !hasBoundaries ? 'Bring in a boundary hierarchy to continue.' : undefined },
+        {
+          ready: hasBoundaries,
+          hint: hierarchies && !hasBoundaries ? t('geography.gate_hint', 'Bring in a boundary hierarchy to continue.') : undefined,
+        },
         probe,
       );
 
@@ -159,14 +167,22 @@ export default function GeographyStep() {
     setSaving(true);
     setSaveError(null);
     try {
-      const result = await saveBoundaryDraft(tenant, toSave);
+      const result = await saveBoundaryDraft(tenant, toSave, t);
       if (result.created.length === 0) {
         // The hierarchy itself may have been defined: Excel's "use an existing hierarchy" should see it.
         reload();
         const reason = result.failed[0]?.error;
+        const total = areas(toSave.boundaries.length, t);
         setSaveError(
-          `None of the ${areas(toSave.boundaries.length)} could be saved${reason ? `: ${reason}` : '.'} ` +
-            'Your selection is kept, so you can edit it or try again.',
+          reason
+            ? t(
+                'geography.save_none_reason',
+                'None of the %{areas} could be saved: %{reason} Your selection is kept, so you can edit it or try again.',
+                { areas: total, reason },
+              )
+            : t('geography.save_none', 'None of the %{areas} could be saved. Your selection is kept, so you can edit it or try again.', {
+                areas: total,
+              }),
         );
         return false;
       }
@@ -174,7 +190,11 @@ export default function GeographyStep() {
       reload();
       const problems = [
         result.failed.length
-          ? `${result.failed.length.toLocaleString('en-US')} of ${areas(toSave.boundaries.length)} couldn't be saved: ${result.failed[0].error}`
+          ? t('geography.save_some_failed', '%{failed} of %{areas} couldn\'t be saved: %{reason}', {
+              failed: result.failed.length.toLocaleString('en-US'),
+              areas: areas(toSave.boundaries.length, t),
+              reason: result.failed[0].error,
+            })
           : null,
         result.schemaError,
       ].filter(Boolean);
@@ -182,12 +202,13 @@ export default function GeographyStep() {
         setSaveError(problems.join(' '));
         return false;
       }
-      toast({ title: 'Boundaries saved' });
+      toast({ title: t('geography.saved_toast', 'Boundaries saved') });
       return true;
     } catch (err) {
       console.error(err);
       reportStepError('geography', 'save_boundaries', err, tenant);
-      setSaveError(`Your boundaries weren't saved: ${reasonOf(err)}`);
+      const reason = err instanceof MessageError ? t(err.key, err.english, err.params) : reasonOf(err);
+      setSaveError(t('geography.save_failed', 'Your boundaries weren\'t saved: %{reason}', { reason }));
       return false;
     } finally {
       setSaving(false);
@@ -200,15 +221,25 @@ export default function GeographyStep() {
     return (
       <div className="space-y-6">
         <StepHeader
-          eyebrow="Geography"
-          title={official ? 'Preconfigured boundaries' : importing.source === 'osm' ? 'Fetch boundaries' : 'Upload from Excel'}
+          eyebrow={t('steps.geography', 'Geography')}
+          title={
+            official
+              ? t('geography.preconfigured_title', 'Preconfigured boundaries')
+              : importing.source === 'osm'
+                ? t('geography.fetch_title', 'Fetch boundaries')
+                : t('geography.excel_title', 'Upload from Excel')
+          }
           done={done}
         >
           {official
-            ? `Official boundaries for ${countryName(official.country)}. Search for your city or region, then pick which levels become your boundary hierarchy.`
+            ? t(
+                'geography.preconfigured_intro',
+                'Official boundaries for %{country}. Search for your city or region, then pick which levels become your boundary hierarchy.',
+                { country: countryName(official.country) },
+              )
             : importing.source === 'osm'
-              ? 'Search for your area and pick which administrative levels become your boundary hierarchy.'
-              : 'Define your levels, fill the template with your areas, and upload it.'}
+              ? t('geography.fetch_intro', 'Search for your area and pick which administrative levels become your boundary hierarchy.')
+              : t('geography.excel_intro', 'Define your levels, fill the template with your areas, and upload it.')}
         </StepHeader>
         <BoundaryImport
           source={importing.source}
@@ -221,7 +252,10 @@ export default function GeographyStep() {
             setBoundaryDraft(tenant, chosen);
             setSaveError(null);
             close();
-            toast({ title: 'Boundaries selected', description: 'Check them, then Save and continue to save them.' });
+            toast({
+              title: t('geography.selected_toast', 'Boundaries selected'),
+              description: t('geography.selected_toast_body', 'Check them, then Save and continue to save them.'),
+            });
           }}
         />
       </div>
@@ -230,16 +264,19 @@ export default function GeographyStep() {
 
   return (
     <div className="space-y-8">
-      <StepHeader eyebrow="Your organisation" title="Geography" done={done}>
-        The boundary hierarchies your complaint services work in. Bring them in from one of three sources.
+      <StepHeader eyebrow={t('step.your_account', 'Your account')} title={t('steps.geography', 'Geography')} done={done}>
+        {t('geography.intro', 'The boundary hierarchies your complaint services work in. Bring them in from one of three sources.')}
       </StepHeader>
 
       {!locked && (
         <Alert variant="info" data-testid="geography-save-notice">
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <span className="font-medium">Boundaries can't be changed once saved.</span> Nothing is saved until you select
-            Save and continue, so check them here first: until then you can edit or remove them.
+            <span className="font-medium">{t('geography.save_notice_title', 'Boundaries can\'t be changed once saved.')}</span>{' '}
+            {t(
+              'geography.save_notice_body',
+              'Nothing is saved until you select Save and continue, so check them here first: until then you can edit or remove them.',
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -247,9 +284,9 @@ export default function GeographyStep() {
       {loadError ? (
         <Alert variant="destructive">
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>Couldn’t load your boundaries. {loadError}</span>
+            <span>{t('geography.load_failed', 'Couldn’t load your boundaries. %{reason}', { reason: loadError })}</span>
             <Button variant="outline" size="sm" onClick={reload}>
-              Try again
+              {t('common.try_again', 'Try again')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -259,7 +296,7 @@ export default function GeographyStep() {
         <section className="space-y-3" data-testid="geography-saved">
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Lock className="h-4 w-4" />
-            Saved. Boundaries can't be edited or removed after they are saved.
+            {t('geography.saved_locked', 'Saved. Boundaries can\'t be edited or removed after they are saved.')}
           </p>
           <ul className="space-y-3">
             {hierarchies.map((hierarchy) => (
@@ -269,7 +306,7 @@ export default function GeographyStep() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground">{hierarchy.hierarchyType}</p>
-                  <p className="text-sm text-muted-foreground">{summaryLine(hierarchy)}</p>
+                  <p className="text-sm text-muted-foreground">{summaryLine(hierarchy, t)}</p>
                   {hierarchy.levels.length > 0 && (
                     <p className="mt-1 text-xs text-muted-foreground">{hierarchy.levels.join(' → ')}</p>
                   )}
@@ -294,21 +331,27 @@ export default function GeographyStep() {
               <Loader2 className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-primary" />
               <div>
                 <p className="font-medium text-foreground">
-                  Saving {areas(draft.boundaries.length)} to {workspace}…
+                  {t('geography.saving', 'Saving %{areas} to %{workspace}…', { areas: areas(draft.boundaries.length, t), workspace })}
                 </p>
-                <p className="text-sm text-muted-foreground">A large set can take a few minutes. Keep this page open.</p>
+                <p className="text-sm text-muted-foreground">
+                  {t('geography.saving_body', 'A large set can take a few minutes. Keep this page open.')}
+                </p>
               </div>
             </div>
           )}
         </div>
       ) : (
         <div className="space-y-6">
-          <EmptyState icon={MapPin} title="No boundaries yet">
-            Your complaint services are routed inside a boundary hierarchy: countries, districts, wards. Bring one in from
-            a source below to get started.
+          <EmptyState icon={MapPin} title={t('geography.empty_title', 'No boundaries yet')}>
+            {t(
+              'geography.empty_body_below',
+              'Your complaint services are routed inside a boundary hierarchy: countries, districts, wards. Bring one in from a source below to get started.',
+            )}
           </EmptyState>
           <section className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">How do you want to bring in your geography?</h3>
+            <h3 className="text-lg font-semibold text-foreground">
+              {t('geography.how_heading', 'How do you want to bring in your geography?')}
+            </h3>
             {/* Three across only from lg: with the onboarding sidebar open on a tablet
                 (820px), three cards are ~156px and the Preconfigured button overflows. */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
@@ -322,21 +365,25 @@ export default function GeographyStep() {
               />
               <OptionCard
                 icon={MapPin}
-                title="Fetch boundaries"
-                action="Search boundaries"
+                title={t('geography.fetch_title', 'Fetch boundaries')}
+                action={t('geography.fetch_action', 'Search boundaries')}
                 onClick={() => setImporting({ source: 'osm', preconfigured: null, resume: null })}
-                disabledReason={boundarySources?.length === 0 ? TURBOPASS_UNAVAILABLE_MESSAGE : undefined}
+                disabledReason={
+                  boundarySources?.length === 0 ? t('geography.turbopass_unavailable', TURBOPASS_UNAVAILABLE_MESSAGE) : undefined
+                }
               >
-                Pull administrative boundaries, with map polygons, from the official sets (OCHA COD-AB, geoBoundaries)
-                or OpenStreetMap.
+                {t(
+                  'geography.fetch_body',
+                  'Pull administrative boundaries, with map polygons, from the official sets (OCHA COD-AB, geoBoundaries) or OpenStreetMap.',
+                )}
               </OptionCard>
               <OptionCard
                 icon={Download}
-                title="Upload from Excel"
-                action="Upload a file"
+                title={t('geography.excel_title', 'Upload from Excel')}
+                action={t('common.upload_file', 'Upload a file')}
                 onClick={() => setImporting({ source: 'excel', preconfigured: null, resume: null })}
               >
-                Bring in your own levels and areas from a spreadsheet.
+                {t('geography.excel_body', 'Bring in your own levels and areas from a spreadsheet.')}
               </OptionCard>
             </div>
           </section>
@@ -363,7 +410,7 @@ export default function GeographyStep() {
         />
         {gate.canRecheck && (
           <Button variant="ghost" size="sm" onClick={recheck}>
-            Check again
+            {t('probe.check_again', 'Check again')}
           </Button>
         )}
       </div>

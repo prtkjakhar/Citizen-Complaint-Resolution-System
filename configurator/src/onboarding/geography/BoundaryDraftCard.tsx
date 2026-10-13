@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { draftCounts, type BoundaryDraft } from './boundaryDraft';
+import { useOnboardingT } from '../i18n';
 
 /**
  * The boundaries chosen in Geography, before Save and continue writes them:
@@ -21,9 +22,13 @@ export function BoundaryDraftCard({
   /** While the draft is being saved. */
   disabled?: boolean;
 }) {
+  const t = useOnboardingT();
   const counts = draftCounts(draft);
   const total = draft.boundaries.length;
-  const n = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'area' : 'areas'}`;
+  const n = (count: number) =>
+    count === 1
+      ? t('geography.created.area_one', '%{count} area', { count: count.toLocaleString('en-US') })
+      : t('geography.created.area_other', '%{count} areas', { count: count.toLocaleString('en-US') });
   return (
     <section className="space-y-4 rounded-lg border border-border bg-card p-4" data-testid="boundary-draft">
       <div className="flex flex-wrap items-start gap-3">
@@ -33,27 +38,32 @@ export function BoundaryDraftCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-semibold text-foreground">{draft.hierarchyType}</h3>
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Not saved yet</span>
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+              {t('geography.draft.not_saved', 'Not saved yet')}
+            </span>
           </div>
           <p className="text-sm leading-6 text-muted-foreground">
-            {n(total)} from {draft.sourceText}.
+            {t('geography.draft.summary', '%{areas} from %{source}.', { areas: n(total), source: draft.sourceText })}
           </p>
           <p className="text-xs text-muted-foreground">{draft.levels.join(' → ')}</p>
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={onEdit} disabled={disabled} className="gap-1.5">
             <Pencil className="w-4 h-4" />
-            Edit
+            {t('common.edit', 'Edit')}
           </Button>
           <DeleteConfirmDialog
-            title="Remove these boundaries?"
-            description="They haven't been saved, so nothing else changes. You can choose boundaries again from any source."
+            title={t('geography.draft.remove_title', 'Remove these boundaries?')}
+            description={t(
+              'geography.draft.remove_body',
+              'They haven\'t been saved, so nothing else changes. You can choose boundaries again from any source.',
+            )}
             onConfirm={onRemove}
             disabled={disabled}
             trigger={
               <Button variant="ghost" size="sm" disabled={disabled} className="gap-1.5 text-destructive hover:text-destructive">
                 <Trash2 className="w-4 h-4" />
-                Remove
+                {t('common.remove', 'Remove')}
               </Button>
             }
           />
@@ -64,8 +74,8 @@ export function BoundaryDraftCard({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Level</TableHead>
-              <TableHead className="text-right">Areas</TableHead>
+              <TableHead>{t('geography.created.level', 'Level')}</TableHead>
+              <TableHead className="text-right">{t('geography.created.areas', 'Areas')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -83,7 +93,7 @@ export function BoundaryDraftCard({
           </TableBody>
           <TableFooter>
             <TableRow>
-              <TableCell className="font-medium">Total</TableCell>
+              <TableCell className="font-medium">{t('geography.created.total', 'Total')}</TableCell>
               <TableCell className="text-right font-medium tabular-nums">{total.toLocaleString('en-US')}</TableCell>
             </TableRow>
           </TableFooter>
@@ -94,8 +104,13 @@ export function BoundaryDraftCard({
         <div className="space-y-1 text-sm text-muted-foreground">
           {draft.skipped > 0 && (
             <p>
-              {draft.skipped.toLocaleString('en-US')} {draft.skipped === 1 ? 'area was' : 'areas were'} left out: unnamed, or
-              lying in no area of the level above.
+              {draft.skipped === 1
+                ? t('geography.draft.skipped_one', '%{count} area was left out: unnamed, or lying in no area of the level above.', {
+                    count: draft.skipped.toLocaleString('en-US'),
+                  })
+                : t('geography.draft.skipped_other', '%{count} areas were left out: unnamed, or lying in no area of the level above.', {
+                    count: draft.skipped.toLocaleString('en-US'),
+                  })}
             </p>
           )}
           {draft.attribution && (
