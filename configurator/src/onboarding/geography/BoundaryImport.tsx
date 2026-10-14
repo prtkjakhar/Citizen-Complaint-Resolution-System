@@ -67,12 +67,12 @@ type Step =
   // OSM path
   | 'osm-search' | 'map-levels' | 'osm-review';
 
-// The included levels, ascending by OSM admin_level.
 /** "Use 1 boundary" / "Use 12 boundaries": the button that hands the choice back to Geography. */
 function boundariesChoiceLabel(count: number, t: OnboardingT): string {
   return count === 1 ? t('geography.use_one', 'Use 1 boundary') : t('geography.use_other', 'Use %{count} boundaries', { count });
 }
 
+// The included levels, ascending by OSM admin_level.
 function getSelectedLevels(levels: OsmAdminLevel[]): OsmAdminLevel[] {
   return [...levels].filter(l => l.selected).sort((a, b) => a.level - b.level);
 }
